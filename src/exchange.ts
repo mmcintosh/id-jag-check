@@ -1,7 +1,7 @@
 // Minting the ID-JAG to check: the token exchange of draft -06 section 4.3, sent to your IdP's token endpoint, and
 // the rules for its answer (section 4.3.4). Only used when the workflow doesn't pass an ID-JAG in.
 import { ID_JAG_TOKEN_TYPE, ID_TOKEN_TOKEN_TYPE, REFRESH_TOKEN_TOKEN_TYPE, type RuleResult, SAML2_TOKEN_TYPE, TOKEN_EXCHANGE_GRANT } from "better-auth-id-jag";
-import { type FetchLike, request } from "./http.js";
+import { type FetchLike, parseJson, request } from "./http.js";
 import { show } from "./show.js";
 
 export const SUBJECT_TOKEN_TYPES = { id_token: ID_TOKEN_TOKEN_TYPE, refresh_token: REFRESH_TOKEN_TOKEN_TYPE, saml2: SAML2_TOKEN_TYPE } as const;
@@ -57,16 +57,12 @@ export async function mint(fetchImpl: FetchLike, input: MintInput): Promise<{ to
     add("exchange.response", "MUST", cite, "fail", `Your token endpoint ${answer.why}.`);
     return { token: null, results };
   }
-  let json: unknown;
-  try {
-    json = JSON.parse(answer.body);
-  } catch {
-    json = undefined;
-  }
+  const parsed = parseJson(answer.body);
+  const json = parsed.ok ? parsed.json : undefined;
   if (answer.status !== 200 || !isObject(json)) {
     // The error code only: an error_description can name the user, and this report goes into the job's log.
     const error = isObject(json) && typeof json.error === "string" ? ` with error ${show(json.error)}` : "";
-    add("exchange.response", "MUST", cite, "fail", answer.status === 200 ? "Your token endpoint answered 200, but not with a JSON object." : `Your token endpoint refused the exchange: HTTP ${answer.status}${error}.`);
+    add("exchange.response", "MUST", cite, "fail", answer.status === 200 ? `Your token endpoint answered 200, but not with a JSON object${parsed.ok ? "" : ` (it ${parsed.why})`}.` : `Your token endpoint refused the exchange: HTTP ${answer.status}${error}.`);
     return { token: null, results };
   }
   add("exchange.response", "MUST", cite, "pass", "Your token endpoint answered the exchange with HTTP 200 and a JSON object.");
@@ -78,7 +74,9 @@ export async function mint(fetchImpl: FetchLike, input: MintInput): Promise<{ to
   add("exchange.token_type", "MUST", `${D("4.3.4")}; RFC 6749 section 5.1`, naOk ? "pass" : "fail", naOk ? "token_type is N_A (this is not an access token)." : `token_type is REQUIRED: N_A, because an ID-JAG is not an access token; it is ${show(tokenType)}.`);
   const cacheControl = answer.headers.get("cache-control") ?? "";
   const noStore = cacheControl.split(",").some((d) => d.trim().toLowerCase() === "no-store");
-  add("exchange.cache_control", "MUST", "RFC 6749 section 5.1; RFC 8693 section 2.2.1", noStore ? "pass" : "fail", noStore ? "Cache-Control: no-store." : `A token response MUST carry Cache-Control: no-store; it has ${cacheControl ? show(cacheControl) : "none"}.`);
+  const contentType = (answer.headers.get("content-type") ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
+  add("exchange.content_type", "MUST", "RFC 6749 section 5.1; RFC 8693 section 2.2.1", contentType === "application/json" ? "pass" : "fail", contentType === "application/json" ? "Content-Type: application/json." : `A token response is application/json; its Content-Type is ${contentType ? show(contentType) : "absent"}.`);
+  add("exchange.cache_control", "MUST", "RFC 6749 section 5.1; RFC 8693 section 2.2", noStore ? "pass" : "fail", noStore ? "Cache-Control: no-store." : `A token response MUST carry Cache-Control: no-store; it has ${cacheControl ? show(cacheControl) : "none"}.`);
   const expiresIn = json.expires_in;
   const expiresOk = typeof expiresIn === "number" && Number.isInteger(expiresIn) && expiresIn > 0;
   add("exchange.expires_in", "RECOMMENDED", D("4.3.4"), expiresOk ? "pass" : "warn", expiresOk ? `expires_in is ${expiresIn} s.` : `expires_in (the ID-JAG's lifetime in seconds) is RECOMMENDED; it is ${expiresIn === undefined ? "absent" : show(expiresIn)}.`);
@@ -93,14 +91,24 @@ export async function mint(fetchImpl: FetchLike, input: MintInput): Promise<{ to
 
   // scope: "OPTIONAL if the scope of the issued token is identical to the scope requested by the client; otherwise,
   // it is REQUIRED" (section 4.3.4). The issued scope is the ID-JAG's scope claim.
+  // Compared as sets, so a repeated scope ("read read") can't stand in for a missing one.
   const issuedScope = scopeClaim(token);
-  const requested = new Set(input.scopes);
-  const same = issuedScope !== null && issuedScope.length === requested.size && issuedScope.every((s) => requested.has(s));
-  if (json.scope !== undefined) add("exchange.scope", "OPTIONAL", D("4.3.4"), typeof json.scope === "string" ? "pass" : "fail", typeof json.scope === "string" ? `scope ${show(json.scope)} is returned.` : "scope must be a space-separated string.");
+  const same = issuedScope !== null && sameSet(issuedScope, input.scopes);
+  if (json.scope !== undefined) {
+    const returned = typeof json.scope === "string" ? json.scope.split(" ").filter(Boolean) : null;
+    const matches = returned !== null && (issuedScope === null || sameSet(returned, issuedScope));
+    add("exchange.scope", "OPTIONAL", D("4.3.4"), matches ? "pass" : "fail", returned === null ? "scope must be a space-separated string." : matches ? `scope ${show(json.scope)} is returned.` : `scope ${show(json.scope)} is returned, but the ID-JAG's scope claim is ${show(issuedScope?.join(" "))}: the response's scope is the issued token's scope.`);
+  }
   else add("exchange.scope", "MUST", D("4.3.4"), same ? "pass" : "fail", same ? "No scope returned, and the ID-JAG grants exactly the scopes requested (allowed: OPTIONAL when identical)." : "No scope returned, but the ID-JAG's scope differs from the scopes requested: the response then MUST include scope.");
 
   return { token, results };
 }
+
+const sameSet = (a: readonly string[], b: readonly string[]) => {
+  const x = new Set(a);
+  const y = new Set(b);
+  return x.size === y.size && [...x].every((s) => y.has(s));
+};
 
 /** The ID-JAG's scope claim as a list, without verifying it (the checker does that), or null if it has none. */
 function scopeClaim(token: string): string[] | null {

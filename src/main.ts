@@ -8,9 +8,12 @@ import { InputError, type RunResult, run } from "./run.js";
 
 type Env = Record<string, string | undefined>;
 
+/** A workflow command's data, escaped as the runner unescapes it (%, CR and LF), as @actions/core does. */
+const escapeData = (s: string) => s.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
+
 /** Asks the runner to hide a value everywhere in the log (a workflow command). */
 const mask = (value: string, write: (line: string) => void) => {
-  for (const line of value.split(/\r?\n/)) if (line.trim()) write(`::add-mask::${line}`);
+  for (const line of value.split(/\r?\n/)) if (line.trim()) write(`::add-mask::${escapeData(line)}`);
 };
 
 /** A multi-line output in the runner's GITHUB_OUTPUT file, with a delimiter the value can't contain. */
@@ -29,7 +32,7 @@ export async function main(env: Env, fetchImpl: typeof fetch, write: (line: stri
   try {
     result = await run(readInputs(env, Math.floor(Date.now() / 1000)), fetchImpl);
   } catch (e) {
-    write(`::error::${e instanceof InputError ? e.message : "The check stopped unexpectedly."}`);
+    write(`::error::${escapeData(e instanceof InputError ? e.message : "The check stopped unexpectedly.")}`);
     return 1;
   }
   if (result.minted) mask(result.minted, write);
@@ -38,7 +41,7 @@ export async function main(env: Env, fetchImpl: typeof fetch, write: (line: stri
   const report = markdown(result);
   if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, report);
   if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, outputLine("passed", String(result.passed)) + outputLine("failed", JSON.stringify(result.failed)) + outputLine("report", report));
-  if (!result.passed) write(`::error::ID-JAG check failed: ${result.failed.join(", ") || "no ID-JAG to check"}.`);
+  if (!result.passed) write(`::error::${escapeData(`ID-JAG check failed: ${result.failed.join(", ") || "no ID-JAG to check"}.`)}`);
   return result.passed ? 0 : 1;
 }
 

@@ -20,32 +20,32 @@ inputs:
     description: The client's id at the receiver, which the ID-JAG's client_id must be. Without it, client_id is only checked for presence.
     required: false
   id-jag:
-    description: The ID-JAG to check, from an earlier step. Pass it from a secret or a step output; it is masked in the log. Or leave it out and give the inputs below, so the Action mints one.
+    description: The ID-JAG to check, from an earlier step. That step must mask it (echo "::add-mask::$TOKEN") before setting its output, because the runner prints this step's inputs before the Action starts. Or leave it out and give the inputs below, so the Action mints one.
     required: false
   token-endpoint:
-    description: To mint the ID-JAG, your IdP's token endpoint. Defaults to token_endpoint from your metadata.
+    description: To mint the ID-JAG, your IdP's token endpoint. Defaults to token_endpoint from your metadata, when the metadata's issuer matches.
     required: false
   idp-client-id:
     description: To mint the ID-JAG, the client's id at your IdP.
     required: false
   idp-client-secret:
-    description: To mint the ID-JAG, the client's secret at your IdP. Pass it from a secret; it is masked in the log.
+    description: To mint the ID-JAG, the client's secret at your IdP. Pass it from a secret, which the runner masks.
     required: false
   idp-client-auth:
     description: How the Action authenticates to your token endpoint, client_secret_basic or client_secret_post.
     required: false
     default: client_secret_basic
   subject-token:
-    description: To mint the ID-JAG, the subject token (an ID token, a refresh token or a SAML assertion from your IdP). Pass it from a secret or a step output; it is masked in the log.
+    description: To mint the ID-JAG, the subject token (an ID token, a refresh token or a SAML assertion from your IdP). Pass it from a secret, or from a step output that step has masked (echo "::add-mask::$TOKEN"), because the runner prints this step's inputs before the Action starts.
     required: false
   subject-token-type:
     description: The subject token's type, id_token, refresh_token or saml2.
     required: false
     default: id_token
   fail-on:
-    description: fail (the default) stops the step when a rule fails; warn also stops it on a warning.
+    description: must (the default) stops the step when a MUST fails, or a rule that stops a receiver's registration; policy also stops it when a POLICY rule fails (what better-auth-id-jag's receiver refuses, though the draft allows it); warn stops it on any failure or warning.
     required: false
-    default: fail
+    default: must
 outputs:
   passed:
     description: true when no rule stopped the step, else false.

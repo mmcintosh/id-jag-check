@@ -20,5 +20,6 @@ jobs:
       - run: npm run build
       - name: dist/ matches the source
         run: |
-          git diff --exit-code -- dist/ || { echo "::error::dist/ is out of date: run npm run build and commit dist/."; exit 1; }
+          # Changed, deleted or new files under dist/ (git diff alone misses new ones).
+          if [ -n "$(git status --porcelain -- dist/)" ]; then git status --porcelain -- dist/; echo "::error::dist/ is out of date: run npm run build and commit dist/."; exit 1; fi
       - run: npm test

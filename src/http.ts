@@ -2,6 +2,8 @@
 // endpoint. Each is https only, never follows a redirect, stops reading past a size cap and gives up after a timeout,
 // so a misconfigured input can't send the Action anywhere unexpected or make it download much.
 
+import { MAX_DEPTH, tooDeep } from "./show.js";
+
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
 export const MAX_URL_LENGTH = 2048;
@@ -28,10 +30,10 @@ export function checkHttpsUrl(raw: string): UrlCheck {
 export type Answer = { ok: true; status: number; headers: Headers; body: string } | { ok: false; why: string };
 
 /** One request: https only, no redirects, at most MAX_BYTES read, within TIMEOUT_MS. Never throws. */
-export async function request(fetchImpl: FetchLike, raw: string, init: RequestInit = {}): Promise<Answer> {
+export async function request(fetchImpl: FetchLike, raw: string, init: RequestInit = {}, timeoutMs = TIMEOUT_MS): Promise<Answer> {
   const check = checkHttpsUrl(raw);
   if (!check.ok) return { ok: false, why: `the URL ${check.why}` };
-  const signal = AbortSignal.timeout(TIMEOUT_MS);
+  const signal = AbortSignal.timeout(timeoutMs);
   try {
     const response = await fetchImpl(check.url.href, { ...init, redirect: "manual", signal });
     if (response.status >= 300 && response.status < 400) return { ok: false, why: `answered ${response.status} (a redirect, which this Action doesn't follow)` };
@@ -58,22 +60,29 @@ export async function request(fetchImpl: FetchLike, raw: string, init: RequestIn
     }
     return { ok: true, status: response.status, headers: response.headers, body: new TextDecoder().decode(bytes) };
   } catch {
-    return { ok: false, why: signal.aborted ? `didn't answer within ${TIMEOUT_MS / 1000} s` : "couldn't be reached" };
+    return { ok: false, why: signal.aborted ? `didn't answer within ${timeoutMs / 1000} s` : "couldn't be reached" };
   }
 }
 
 export type JsonAnswer = { ok: true; json: unknown } | { ok: false; why: string };
+
+/** JSON from a response body, or why not: not JSON, or nested deeper than MAX_DEPTH. Never throws. */
+export function parseJson(body: string): JsonAnswer {
+  let json: unknown;
+  try {
+    json = JSON.parse(body);
+  } catch {
+    return { ok: false, why: "is not JSON" };
+  }
+  return tooDeep(json) ? { ok: false, why: `is JSON nested more than ${MAX_DEPTH} levels deep` } : { ok: true, json };
+}
 
 /** GETs a JSON document through `request`. Never throws. */
 export async function getJson(fetchImpl: FetchLike, raw: string): Promise<JsonAnswer> {
   const answer = await request(fetchImpl, raw, { method: "GET", headers: { accept: "application/json" } });
   if (!answer.ok) return answer;
   if (answer.status !== 200) return { ok: false, why: `answered HTTP ${answer.status}` };
-  try {
-    return { ok: true, json: JSON.parse(answer.body) };
-  } catch {
-    return { ok: false, why: "is not JSON" };
-  }
+  return parseJson(answer.body);
 }
 
 /** RFC 8414 section 3.1: the well-known segment goes between the host and the issuer's path. */

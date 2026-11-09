@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { request } from "../src/http.js";
 import { main } from "../src/main.js";
 import { AUDIENCE, BASE, env, fakeIdp, ISSUER, json, RESOURCE } from "./idp.js";
 
@@ -42,6 +43,16 @@ describe("an ID-JAG passed in", () => {
     expect(r.log.at(-1)).toBe("::error::ID-JAG check failed: claim.aud.");
   });
 
+  it("a malformed certificate in the JWKS is a failed rule, and the report is kept", async () => {
+    const idp = await fakeIdp();
+    const keys = (await (await idp.fetch(`${ISSUER}/jwks`)).json()) as { keys: Record<string, unknown>[] };
+    idp.routes.set(`${ISSUER}/jwks`, () => json({ keys: keys.keys.map((k) => ({ ...k, kid: undefined, x5c: ["not base64!"] })) }));
+    const r = await runAction({ ...BASE, "id-jag": await idp.sign({}, { kid: undefined, x5t: "AAAA" }) }, idp);
+    expect(r.code).toBe(1);
+    expect(ids(r.outputs.failed as string)).toContain("jwt.check");
+    expect(r.summary).toContain("metadata.issuer");
+  });
+
   it("a key the JWKS doesn't have fails the signature", async () => {
     const idp = await fakeIdp();
     const other = await fakeIdp();
@@ -57,6 +68,17 @@ describe("an ID-JAG passed in", () => {
     const r = await runAction({ ...withoutClient, "id-jag": token }, idp);
     expect(r.code).toBe(0);
     expect(r.log.some((l) => l.startsWith("skip claim.client_id"))).toBe(true);
+  });
+
+  it("fail-on: must (the default) passes a POLICY failure; policy stops on it", async () => {
+    const idp = await fakeIdp();
+    const token = await idp.sign({ authorization_details: [{ type: "x" }] });
+    const must = await runAction({ ...BASE, "id-jag": token }, idp);
+    expect(must.code).toBe(0);
+    expect(must.log.some((l) => l.startsWith("FAIL claim.authorization_details (POLICY,"))).toBe(true);
+    const policy = await runAction({ ...BASE, "id-jag": token, "fail-on": "policy" }, idp);
+    expect(policy.code).toBe(1);
+    expect(ids(policy.outputs.failed as string)).toEqual(["claim.authorization_details", "receiver.parse"]);
   });
 
   it("fail-on: warn also stops the step on a warning", async () => {
@@ -77,9 +99,9 @@ describe("privacy: what the log and the summary never show", () => {
     expect(r.log[0]).toBe(`::add-mask::${token}`);
     const everything = [...r.log.slice(1), r.summary, ...Object.values(r.outputs)].join("\n");
     for (const secret of [token, "sub-value-9f2c", "who@example.org"]) expect(everything).not.toContain(secret);
-    // The claims' names are listed; the values shown are only the setup's own.
-    expect(r.summary).toContain("`sub`");
-    expect(r.summary).toContain(`| \`iss\` | \`"${ISSUER}"\` |`);
+    // The claims' names are listed; the values shown are only the setup's own (escaped for Markdown).
+    expect(r.summary).toMatch(/^Claims: .*\bsub\b/m);
+    expect(r.summary).toContain('| `iss` | \\"https\\:\\/\\/idp\\.example\\.com\\" |');
   });
 
   it("a value in a claim can't break the summary's table or start a workflow command", async () => {
@@ -88,6 +110,27 @@ describe("privacy: what the log and the summary never show", () => {
     expect(r.summary).not.toContain("<b>");
     expect(r.summary).not.toMatch(/\n::warning::/);
     expect(r.log.every((l) => !l.startsWith("::") || /^::(add-mask|error)::/.test(l))).toBe(true);
+  });
+
+  it("a value in a claim can't become a link, an image or code in the summary", async () => {
+    const idp = await fakeIdp();
+    const r = await runAction({ ...BASE, "id-jag": await idp.sign({ iss: "[click](https://evil.example.net) ![x](https://evil.example.net/p.png) `c`", "[n](https://evil.example.net)": 1 }) }, idp);
+    for (const raw of ["[click](", "![x](", "`c`", "[n]("]) expect(r.summary).not.toContain(raw);
+    expect(r.summary).toContain("\\[click\\]\\(https\\:");
+  });
+
+  it("an actor's identity (act.sub) is never shown, though claim.act is reported", async () => {
+    const idp = await fakeIdp();
+    const r = await runAction({ ...BASE, "id-jag": await idp.sign({ act: { sub: "actor-7c1e@example.org" } }) }, idp);
+    const everything = [...r.log, r.summary, ...Object.values(r.outputs)].join("\n");
+    expect(everything).not.toContain("actor-7c1e@example.org");
+    expect(r.log.find((l) => l.includes("claim.act"))).toContain("(not shown)");
+  });
+
+  it("a secret is masked with %, CR and LF escaped, as the runner unescapes them", async () => {
+    const idp = await fakeIdp();
+    const r = await runAction({ ...BASE, "subject-token": "a%0Ab%25c", "idp-client-id": "c", "idp-client-secret": "s" }, idp);
+    expect(r.log[0]).toBe("::add-mask::a%250Ab%2525c");
   });
 });
 
@@ -101,12 +144,33 @@ describe("your metadata and keys", () => {
     expect(r.log.some((l) => l.startsWith("warn metadata.location"))).toBe(true);
   });
 
-  it("no metadata at either location: metadata.fetch fails, and the signature is skipped", async () => {
+  it("no metadata at either location: metadata.fetch fails, and so does jwks.fetch, which stops the step", async () => {
     const idp = await fakeIdp();
     idp.routes.delete(`${ISSUER}/.well-known/oauth-authorization-server`);
     const r = await runAction({ ...BASE, "id-jag": await idp.sign() }, idp);
-    expect(ids(r.outputs.failed as string)).toEqual(["metadata.fetch"]);
+    expect(ids(r.outputs.failed as string)).toEqual(["jwks.fetch"]);
+    expect(r.log.some((l) => l.startsWith("FAIL metadata.fetch (SHOULD,"))).toBe(true);
     expect(r.log.some((l) => l.startsWith("skip signature"))).toBe(true);
+  });
+
+  it("metadata naming another issuer isn't used: its jwks_uri isn't fetched", async () => {
+    const idp = await fakeIdp();
+    idp.metadata.issuer = "https://other.example.net";
+    idp.metadata.jwks_uri = "https://other.example.net/jwks";
+    const r = await runAction({ ...BASE, "id-jag": await idp.sign() }, idp);
+    expect(idp.calls.map((c) => c.url)).not.toContain("https://other.example.net/jwks");
+    expect(ids(r.outputs.failed as string)).toContain("metadata.issuer");
+    expect(r.log.some((l) => l.startsWith("skip jwks.fetch (MUST,"))).toBe(true);
+  });
+
+  it("JSON nested too deeply is refused, and the report is still written", async () => {
+    const idp = await fakeIdp();
+    const deep = `${"[".repeat(100_000)}${"]".repeat(100_000)}`;
+    idp.routes.set(`${ISSUER}/jwks`, () => new Response(deep, { status: 200 }));
+    const r = await runAction({ ...BASE, "id-jag": await idp.sign() }, idp);
+    expect(r.code).toBe(1);
+    expect(r.log.find((l) => l.includes("jwks.fetch"))).toContain("nested more than 32 levels deep");
+    expect(r.summary).toContain("## ID-JAG check: failed");
   });
 
   it("an unreachable JWKS: jwks.fetch fails", async () => {
@@ -127,9 +191,23 @@ describe("your metadata and keys", () => {
 
   it("a JWKS larger than the cap isn't read", async () => {
     const idp = await fakeIdp();
-    idp.routes.set(`${ISSUER}/jwks`, () => new Response(new ReadableStream({ pull: (c) => c.enqueue(new Uint8Array(65_536)) }), { status: 200 }));
+    // A finite stream past the cap, so a missing cap fails the test instead of hanging it.
+    let sent = 0;
+    idp.routes.set(`${ISSUER}/jwks`, () => new Response(new ReadableStream({ pull: (c) => (sent < 5 ? (sent++, c.enqueue(new Uint8Array(65_536))) : c.close()) }), { status: 200 }));
     const r = await runAction({ ...BASE, "id-jag": await idp.sign() }, idp);
     expect(r.log.find((l) => l.includes("jwks.fetch"))).toContain("more than 262144 bytes");
+  });
+
+  it("a declared Content-Length past the cap isn't read", async () => {
+    const idp = await fakeIdp();
+    idp.routes.set(`${ISSUER}/jwks`, () => new Response("{}", { status: 200, headers: { "content-length": "300000" } }));
+    const r = await runAction({ ...BASE, "id-jag": await idp.sign() }, idp);
+    expect(r.log.find((l) => l.includes("jwks.fetch"))).toContain("more than 262144 bytes");
+  });
+
+  it("a request that doesn't answer in time gives up", async () => {
+    const hang = (_: string, init?: RequestInit) => new Promise<Response>((_, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal?.reason)));
+    expect(await request(hang, "https://idp.example.com/slow", {}, 20)).toEqual({ ok: false, why: "didn't answer within 0.02 s" });
   });
 });
 
@@ -159,7 +237,45 @@ describe("minting the ID-JAG (draft -06 section 4.3)", () => {
     });
     // RFC 6749 section 2.3.1: each half form-urlencoded before base64 (a space is "+", ":" is "%3A").
     expect((call?.init?.headers as Record<string, string>).authorization).toBe(`Basic ${btoa("ci+client:s3cret%3A%2B%2F%3D")}`);
-    for (const id of ["exchange.response", "exchange.issued_token_type", "exchange.token_type", "exchange.cache_control", "exchange.access_token"]) expect(r.log.some((l) => l.startsWith(`pass ${id}`))).toBe(true);
+    // Each rule this Action adds, with its level.
+    const levels = { "exchange.response": "MUST", "exchange.issued_token_type": "MUST", "exchange.token_type": "MUST", "exchange.content_type": "MUST", "exchange.cache_control": "MUST", "exchange.expires_in": "RECOMMENDED", "exchange.refresh_token": "SHOULD", "exchange.access_token": "MUST", "exchange.scope": "OPTIONAL" };
+    for (const [id, level] of Object.entries(levels)) expect(r.log.some((l) => l.startsWith(`pass ${id} (${level},`))).toBe(true);
+  });
+
+  it("metadata naming another issuer: its token_endpoint gets no secret, unless token-endpoint is given", async () => {
+    const idp = await fakeIdp();
+    idp.metadata.issuer = "https://other.example.net";
+    idp.metadata.token_endpoint = "https://other.example.net/token";
+    const r = await runAction({ ...BASE, ...MINT }, idp);
+    expect(idp.calls.map((c) => c.url)).not.toContain("https://other.example.net/token");
+    expect(ids(r.outputs.failed as string)).toEqual(expect.arrayContaining(["metadata.issuer", "exchange.token_endpoint"]));
+    expect(r.log.find((l) => l.includes("exchange.token_endpoint"))).toContain("MUST NOT be used");
+    idp.routes.set(`${ISSUER}/token`, async () => good(await idp.sign()));
+    await runAction({ ...BASE, ...MINT, "token-endpoint": `${ISSUER}/token` }, idp);
+    expect(idp.calls.map((c) => c.url)).toContain(`${ISSUER}/token`);
+  });
+
+  it("no metadata and no token-endpoint: reported as a rule, with the rest of the report", async () => {
+    const idp = await fakeIdp();
+    idp.routes.delete(`${ISSUER}/.well-known/oauth-authorization-server`);
+    const r = await runAction({ ...BASE, ...MINT }, idp);
+    expect(r.log.find((l) => l.includes("exchange.token_endpoint"))).toContain("no metadata was found");
+    expect(r.summary).toContain("metadata.fetch");
+  });
+
+  it("a repeated scope can't stand in for a missing one", async () => {
+    const idp = await fakeIdp();
+    idp.routes.set(`${ISSUER}/token`, async () => json({ issued_token_type: "urn:ietf:params:oauth:token-type:id-jag", access_token: await idp.sign({ scope: "read read" }), token_type: "N_A", expires_in: 300 }, { "cache-control": "no-store" }));
+    const r = await runAction({ ...BASE, ...MINT }, idp);
+    expect(ids(r.outputs.failed as string)).toEqual(["exchange.scope"]);
+  });
+
+  it("the answer must be application/json, and a returned scope must match the ID-JAG's", async () => {
+    const idp = await fakeIdp();
+    tokenRoute(idp, (token) => new Response(JSON.stringify({ issued_token_type: "urn:ietf:params:oauth:token-type:id-jag", access_token: token, token_type: "N_A", expires_in: 300, scope: "read write" }), { status: 200, headers: { "content-type": "text/plain", "cache-control": "no-store" } }));
+    const r = await runAction({ ...BASE, ...MINT }, idp);
+    expect(ids(r.outputs.failed as string)).toEqual(["exchange.content_type"]);
+    expect(r.log.some((l) => l.startsWith("FAIL exchange.scope (OPTIONAL,"))).toBe(true);
   });
 
   it("the token endpoint comes from the metadata unless token-endpoint is given", async () => {
@@ -203,7 +319,7 @@ describe("minting the ID-JAG (draft -06 section 4.3)", () => {
     const r = await runAction({ ...BASE, ...MINT }, idp);
     expect(r.code).toBe(1);
     expect(r.log.find((l) => l.includes("exchange.response"))).toContain('HTTP 400 with error "invalid_grant"');
-    expect([...r.log, r.summary].join("\n")).not.toContain("who@example.org");
+    expect([...r.log, r.summary, ...Object.values(r.outputs)].join("\n")).not.toMatch(/who@example\.org|error_description/);
   });
 
   it("the secrets and the minted ID-JAG are masked, and none of them is printed", async () => {
@@ -220,11 +336,14 @@ describe("minting the ID-JAG (draft -06 section 4.3)", () => {
 describe("inputs", () => {
   it.each([
     [{ ...BASE }, "Give id-jag, or subject-token, idp-client-id, idp-client-secret to mint one."],
-    [{ ...BASE, "id-jag": "x", "subject-token": "y" }, "Give either id-jag or the inputs to mint one (subject-token, idp-client-id, idp-client-secret), not both."],
+    [{ ...BASE, "id-jag": "x", "subject-token": "y" }, "Give either id-jag or the inputs to mint one (subject-token, idp-client-id, idp-client-secret, token-endpoint), not both."],
     [{ ...BASE, "subject-token": "y" }, "The input idp-client-id is required."],
     [{ ...BASE, issuer: "http://idp.example.com", "id-jag": "x" }, "issuer must use https."],
     [{ ...BASE, scopes: " ", "id-jag": "x" }, "The input scopes is required."],
-    [{ ...BASE, "fail-on": "never", "id-jag": "x" }, 'fail-on must be fail or warn; it is "never".'],
+    [{ ...BASE, "fail-on": "never", "id-jag": "x" }, 'fail-on must be one of must, policy, warn; it is "never".'],
+    [{ ...BASE, issuer: "https://idp.example.com/?tenant=1", "id-jag": "x" }, "issuer must not contain a query (?): RFC 8414 section 2."],
+    [{ ...BASE, "id-jag": "x", "token-endpoint": "https://idp.example.com/token" }, "Give either id-jag or the inputs to mint one (subject-token, idp-client-id, idp-client-secret, token-endpoint), not both."],
+    [{ ...BASE, "subject-token": "y", "idp-client-id": "c", "idp-client-secret": "s", "subject-token-type": "constructor" }, 'subject-token-type must be one of id_token, refresh_token, saml2; it is "constructor".'],
   ])("%# refuses with a message", async (inputs, message) => {
     const idp = await fakeIdp();
     const r = await runAction(inputs as Record<string, string>, idp);
