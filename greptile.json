@@ -1,0 +1,12 @@
+{
+  "triggerOnDrafts": true,
+  "autoReview": ["open", "push"],
+  "excludeAuthors": ["dependabot[bot]"],
+  "shouldUpdateDescription": false,
+  "statusCheck": false,
+  "fixWithAI": false,
+  "autoApprove": { "enabled": false },
+  "strictness": 2,
+  "ignorePatterns": "dist/**\npackage-lock.json",
+  "instructions": "id-jag-check is a GitHub Action that checks the ID-JAGs an IdP issues against draft-ietf-oauth-identity-assertion-authz-grant-06, using better-auth-id-jag's rules. dist/ is the esbuild bundle of src/, and CI checks that it matches, so review src/. Put security and correctness first, above all what the Action sends and what it prints to the log, the job summary and the outputs. When a comment is about protocol behaviour, name the section of the draft or the RFC it rests on."
+}

@@ -1,7 +1,8 @@
 #!/bin/sh
 # Refuses a commit whose message credits an AI (the same rule as .github/workflows/commit-text.yml).
 # Turn it on in your clone: git config core.hooksPath .githooks
-ai='claude|anthropic|copilot|openai|chatgpt|codex|gemini|bard|cursor|codeium|windsurf|devin|aider|tabnine|codewhisperer|amazon ?q|sweep|mutable\.ai|grok'
+# AI review bots too: committing one's suggested change on GitHub adds the bot as a co-author.
+ai='claude|anthropic|copilot|openai|chatgpt|codex|gemini|bard|cursor|codeium|windsurf|devin|aider|tabnine|codewhisperer|amazon ?q|sweep|mutable\.ai|grok|greptile|coderabbit|qodo|sourcery|ellipsis'
 if grep -inE "co-authored-by:.*($ai)|generated (with|by) \[?($ai)|noreply@anthropic\.com|claude\.(ai|com)/code|chatgpt\.com|copilot-swe-agent" "$1"; then
   echo "This repository has no AI co-authors: remove the lines above." >&2
   exit 1
