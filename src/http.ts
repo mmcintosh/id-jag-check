@@ -36,9 +36,14 @@ export async function request(fetchImpl: FetchLike, raw: string, init: RequestIn
   const signal = AbortSignal.timeout(timeoutMs);
   try {
     const response = await fetchImpl(check.url.href, { ...init, redirect: "manual", signal });
-    if (response.status >= 300 && response.status < 400) return { ok: false, why: `answered ${response.status} (a redirect, which this Action doesn't follow)` };
+    // A refused answer's body is cancelled, so its connection doesn't stay open until the timeout.
+    const refuse = async (why: string): Promise<Answer> => {
+      await response.body?.cancel().catch(() => {});
+      return { ok: false, why };
+    };
+    if (response.status >= 300 && response.status < 400) return refuse(`answered ${response.status} (a redirect, which this Action doesn't follow)`);
     const declared = Number(response.headers.get("content-length") ?? "0");
-    if (declared > MAX_BYTES) return { ok: false, why: `answered with more than ${MAX_BYTES} bytes` };
+    if (declared > MAX_BYTES) return refuse(`answered with more than ${MAX_BYTES} bytes`);
     const reader = response.body?.getReader();
     const chunks: Uint8Array[] = [];
     let size = 0;

@@ -97,7 +97,8 @@ export async function mint(fetchImpl: FetchLike, input: MintInput): Promise<{ to
   if (json.scope !== undefined) {
     const returned = typeof json.scope === "string" ? json.scope.split(" ").filter(Boolean) : null;
     const matches = returned !== null && (issuedScope === null || sameSet(returned, issuedScope));
-    add("exchange.scope", "OPTIONAL", D("4.3.4"), matches ? "pass" : "fail", returned === null ? "scope must be a space-separated string." : matches ? `scope ${show(json.scope)} is returned.` : `scope ${show(json.scope)} is returned, but the ID-JAG's scope claim is ${show(issuedScope?.join(" "))}: the response's scope is the issued token's scope.`);
+    // When the ID-JAG's scope differs from the request, scope is REQUIRED, so a wrong one fails a MUST.
+    add("exchange.scope", same ? "OPTIONAL" : "MUST", D("4.3.4"), matches ? "pass" : "fail", returned === null ? "scope must be a space-separated string." : matches ? `scope ${show(json.scope)} is returned.` : `scope ${show(json.scope)} is returned, but the ID-JAG's scope claim is ${show(issuedScope?.join(" "))}: the response's scope is the issued token's scope.`);
   }
   else add("exchange.scope", "MUST", D("4.3.4"), same ? "pass" : "fail", same ? "No scope returned, and the ID-JAG grants exactly the scopes requested (allowed: OPTIONAL when identical)." : "No scope returned, but the ID-JAG's scope differs from the scopes requested: the response then MUST include scope.");
 

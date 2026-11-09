@@ -198,11 +198,22 @@ describe("your metadata and keys", () => {
     expect(r.log.find((l) => l.includes("jwks.fetch"))).toContain("more than 262144 bytes");
   });
 
-  it("a declared Content-Length past the cap isn't read", async () => {
+  it("a declared Content-Length past the cap isn't read, and its body is cancelled", async () => {
     const idp = await fakeIdp();
-    idp.routes.set(`${ISSUER}/jwks`, () => new Response("{}", { status: 200, headers: { "content-length": "300000" } }));
+    let cancelled = false;
+    const body = () => new ReadableStream({ pull: (c) => c.enqueue(new Uint8Array(1)), cancel: () => void (cancelled = true) });
+    idp.routes.set(`${ISSUER}/jwks`, () => new Response(body(), { status: 200, headers: { "content-length": "300000" } }));
     const r = await runAction({ ...BASE, "id-jag": await idp.sign() }, idp);
     expect(r.log.find((l) => l.includes("jwks.fetch"))).toContain("more than 262144 bytes");
+    expect(cancelled).toBe(true);
+  });
+
+  it("a redirect's body is cancelled", async () => {
+    const idp = await fakeIdp();
+    let cancelled = false;
+    idp.routes.set(`${ISSUER}/jwks`, () => new Response(new ReadableStream({ pull: (c) => c.enqueue(new Uint8Array(1)), cancel: () => void (cancelled = true) }), { status: 302, headers: { location: "https://elsewhere.example.net/jwks" } }));
+    await runAction({ ...BASE, "id-jag": await idp.sign() }, idp);
+    expect(cancelled).toBe(true);
   });
 
   it("a request that doesn't answer in time gives up", async () => {
@@ -238,7 +249,7 @@ describe("minting the ID-JAG (draft -06 section 4.3)", () => {
     // RFC 6749 section 2.3.1: each half form-urlencoded before base64 (a space is "+", ":" is "%3A").
     expect((call?.init?.headers as Record<string, string>).authorization).toBe(`Basic ${btoa("ci+client:s3cret%3A%2B%2F%3D")}`);
     // Each rule this Action adds, with its level.
-    const levels = { "exchange.response": "MUST", "exchange.issued_token_type": "MUST", "exchange.token_type": "MUST", "exchange.content_type": "MUST", "exchange.cache_control": "MUST", "exchange.expires_in": "RECOMMENDED", "exchange.refresh_token": "SHOULD", "exchange.access_token": "MUST", "exchange.scope": "OPTIONAL" };
+    const levels = { "exchange.response": "MUST", "exchange.issued_token_type": "MUST", "exchange.token_type": "MUST", "exchange.content_type": "MUST", "exchange.cache_control": "MUST", "exchange.expires_in": "RECOMMENDED", "exchange.refresh_token": "SHOULD", "exchange.access_token": "MUST", "exchange.scope": "MUST" }; // "read" of "read write": scope is REQUIRED
     for (const [id, level] of Object.entries(levels)) expect(r.log.some((l) => l.startsWith(`pass ${id} (${level},`))).toBe(true);
   });
 
@@ -274,8 +285,17 @@ describe("minting the ID-JAG (draft -06 section 4.3)", () => {
     const idp = await fakeIdp();
     tokenRoute(idp, (token) => new Response(JSON.stringify({ issued_token_type: "urn:ietf:params:oauth:token-type:id-jag", access_token: token, token_type: "N_A", expires_in: 300, scope: "read write" }), { status: 200, headers: { "content-type": "text/plain", "cache-control": "no-store" } }));
     const r = await runAction({ ...BASE, ...MINT }, idp);
-    expect(ids(r.outputs.failed as string)).toEqual(["exchange.content_type"]);
-    expect(r.log.some((l) => l.startsWith("FAIL exchange.scope (OPTIONAL,"))).toBe(true);
+    // The ID-JAG grants "read" of "read write": scope is then REQUIRED, and "read write" is wrong, a failed MUST.
+    expect(ids(r.outputs.failed as string)).toEqual(["exchange.content_type", "exchange.scope"]);
+    expect(r.log.some((l) => l.startsWith("FAIL exchange.scope (MUST,"))).toBe(true);
+  });
+
+  it("a returned scope is OPTIONAL when the ID-JAG grants exactly what was asked for", async () => {
+    const idp = await fakeIdp();
+    tokenRoute(idp, (token) => json({ issued_token_type: "urn:ietf:params:oauth:token-type:id-jag", access_token: token, token_type: "N_A", expires_in: 300, scope: "read" }, { "cache-control": "no-store" }));
+    const r = await runAction({ ...BASE, ...MINT, scopes: "read" }, idp);
+    expect(r.code).toBe(0);
+    expect(r.log.some((l) => l.startsWith("pass exchange.scope (OPTIONAL,"))).toBe(true);
   });
 
   it("the token endpoint comes from the metadata unless token-endpoint is given", async () => {

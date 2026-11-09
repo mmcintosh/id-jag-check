@@ -120,7 +120,7 @@ The rules this Action adds, for the steps only it does:
 | `exchange.access_token` | MUST | draft -06 section 4.3.4 | Present: it carries the ID-JAG. |
 | `exchange.expires_in` | RECOMMENDED | draft -06 section 4.3.4 | A positive whole number of seconds. |
 | `exchange.refresh_token` | SHOULD | draft -06 section 4.3.4 | Absent ("SHOULD NOT be used"). |
-| `exchange.scope` | MUST, or OPTIONAL | draft -06 section 4.3.4 | Present whenever the ID-JAG's scope differs from the scopes asked for; when present, the same as the ID-JAG's scope. |
+| `exchange.scope` | MUST, or OPTIONAL | draft -06 section 4.3.4 | Present, and the same as the ID-JAG's scope, whenever that differs from the scopes asked for (MUST); otherwise OPTIONAL, and the same when present. |
 
 ## What it doesn't check
 
