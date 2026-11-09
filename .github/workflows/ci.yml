@@ -1,0 +1,23 @@
+# Typecheck, build, test. dist/index.js is what the runner runs, so it is committed, and this fails when it doesn't
+# match the source (run npm run build and commit dist/). Runners are pinned to ubuntu-24.04, and every action to a SHA.
+name: CI
+on:
+  push: { branches: [main] }
+  pull_request:
+permissions: { contents: read }
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version: 24, cache: npm }
+      # Socket Firewall: blocks packages Socket has confirmed as malware before they download.
+      - uses: SocketDev/action@ba6de6cc0565af1f42295590380973573297e31f # v1.3.2
+        with: { mode: firewall-free }
+      - run: sfw npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - name: dist/ matches the source
+        run: git diff --exit-code -- dist/ || { echo "::error::dist/ is out of date: run npm run build and commit dist/."; exit 1; }
+      - run: npm test

@@ -1,0 +1,18 @@
+# Weekly, grouped updates, each version at least 3 days old (most npm malware is found and pulled within days).
+# Security updates aren't delayed. A dependency update also needs dist/ rebuilt (CI says so until it is).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: weekly }
+    cooldown: { default-days: 3 }
+    open-pull-requests-limit: 5
+    groups:
+      dev: { dependency-type: development, update-types: [minor, patch] }
+      runtime: { dependency-type: production, update-types: [minor, patch] }
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    cooldown: { default-days: 3 }
+    groups:
+      actions: { patterns: ["*"] }

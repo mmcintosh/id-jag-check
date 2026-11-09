@@ -1,0 +1,26 @@
+{
+  "name": "id-jag-check",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A GitHub Action that checks the ID-JAGs your IdP issues, rule by rule.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "better-auth-id-jag": "^0.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "esbuild": "^0.28.2",
+    "jose": "^6.2.16",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  }
+}
