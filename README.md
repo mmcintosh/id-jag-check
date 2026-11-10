@@ -110,7 +110,7 @@ The rules this Action adds, for the steps only it does:
 |---|---|---|---|
 | `metadata.fetch` | SHOULD | draft -06 section 7.1; RFC 8414 section 3 | Metadata is found at one of the two locations. |
 | `jwks.fetch` | MUST | draft -06 section 4.4.1; RFC 7521 section 5.2 | The metadata's `jwks_uri` answers with JSON: a receiver verifies the signature with these keys. Not fetched when the metadata's `issuer` isn't yours (RFC 8414 section 3.3). |
-| `metadata.check`, `jwt.check` | MUST | RFC 8414 section 3.2; draft -06 section 4.4.1 | The checks could read every value they needed (a malformed `x5c` certificate in your JWKS, for example, stops them). The rest of the report is kept. |
+| `metadata.check`, `jwt.check` | MUST | RFC 8414 section 3.2; draft -06 section 4.4.1 | The checks could read every value they needed. They aren't known to stop on any input; if one ever does, its rule fails and the rest of the report is kept. |
 | `exchange.response` | MUST | draft -06 section 4.3.4; RFC 8693 section 2.2 | The exchange answers HTTP 200 with a JSON object. |
 | `exchange.issued_token_type` | MUST | draft -06 section 4.3.4 | `urn:ietf:params:oauth:token-type:id-jag`. |
 | `exchange.token_type` | MUST | draft -06 section 4.3.4; RFC 6749 section 5.1 | `N_A`. |

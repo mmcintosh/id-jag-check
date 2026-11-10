@@ -1,6 +1,6 @@
 The packages bundled into dist/index.js, and their licences.
 
-better-auth-id-jag@0.7.0 (MIT)
+better-auth-id-jag@0.7.1 (MIT)
 
 MIT License
 

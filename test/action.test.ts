@@ -43,14 +43,15 @@ describe("an ID-JAG passed in", () => {
     expect(r.log.at(-1)).toBe("::error::ID-JAG check failed: claim.aud.");
   });
 
-  it("a malformed certificate in the JWKS is a failed rule, and the report is kept", async () => {
+  it("a malformed certificate in the JWKS doesn't stop the checks: no key matches, so the signature fails", async () => {
     const idp = await fakeIdp();
     const keys = (await (await idp.fetch(`${ISSUER}/jwks`)).json()) as { keys: Record<string, unknown>[] };
     idp.routes.set(`${ISSUER}/jwks`, () => json({ keys: keys.keys.map((k) => ({ ...k, kid: undefined, x5c: ["not base64!"] })) }));
     const r = await runAction({ ...BASE, "id-jag": await idp.sign({}, { kid: undefined, x5t: "AAAA" }) }, idp);
     expect(r.code).toBe(1);
-    expect(ids(r.outputs.failed as string)).toContain("jwt.check");
+    expect(ids(r.outputs.failed as string)).toEqual(["header.kid", "signature"]);
     expect(r.summary).toContain("metadata.issuer");
+    expect(r.summary).toContain("claim.aud");
   });
 
   it("a key the JWKS doesn't have fails the signature", async () => {

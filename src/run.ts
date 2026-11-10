@@ -120,9 +120,9 @@ export async function run(input: RunInput, fetchImpl: FetchLike): Promise<RunRes
       jwks: isObject(jwks) && Array.isArray(jwks.keys) ? (jwks as unknown as Parameters<typeof checkIdJag>[1]["jwks"]) : null,
       now: input.now,
     }));
-    // A value the checker couldn't read (such as a malformed certificate in your JWKS) is a failed rule, and the
-    // rest of the report is kept.
-    const report: IdJagReport = checked.ok ? checked.value : { header: null, claims: null, results: [{ id: "jwt.check", level: "MUST", cite: "draft -06 section 4.4.1", outcome: "fail", message: "The ID-JAG or your JWKS has a value the checks couldn't read (a malformed x5c certificate, for example), so they stopped." }] };
+    // The checker isn't known to throw on any input; if it ever does, that is a failed rule, and the rest of the
+    // report is kept.
+    const report: IdJagReport = checked.ok ? checked.value : { header: null, claims: null, results: [{ id: "jwt.check", level: "MUST", cite: "draft -06 section 4.4.1", outcome: "fail", message: "The ID-JAG or your JWKS has a value the checks couldn't read, so they stopped." }] };
     // receiver.parse is whether better-auth-id-jag's own receiver accepts the ID-JAG: that receiver's policy. Every
     // MUST it enforces has its own rule above, so here it's POLICY, and fail-on: must doesn't stop on it alone.
     results.push(...report.results.map((r) => ({ ...r, level: r.id === "receiver.parse" ? ("POLICY" as const) : r.level, message: hideUserValues(r.message, report.claims) })));
