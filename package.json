@@ -4,6 +4,7 @@
   "private": true,
   "description": "A GitHub Action that checks the ID-JAGs your IdP issues, rule by rule.",
   "license": "MIT",
+  "author": "Mark McIntosh",
   "type": "module",
   "engines": {
     "node": ">=24"

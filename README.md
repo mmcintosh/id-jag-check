@@ -4,7 +4,7 @@ A GitHub Action that checks the ID-JAGs (Identity Assertion JWT Authorization Gr
 against [draft-ietf-oauth-identity-assertion-authz-grant-06](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/06/).
 ID-JAGs are what Cross App Access and MCP's enterprise-managed authorization run on. Add it to your IdP's CI, and a
 change that breaks one of the draft's MUSTs fails the build (with `fail-on: policy`, so does one that
-better-auth-id-jag's receiver would refuse), with every rule's result in the job summary. Not released yet.
+better-auth-id-jag's receiver would refuse), with every rule's result in the job summary.
 
 The rules are [better-auth-id-jag](https://www.npmjs.com/package/better-auth-id-jag)'s `checkIssuerMetadata` and
 `checkIdJag` ([source](https://github.com/mmcintosh/better-auth-id-jag/blob/main/src/core/check.ts)), the same ones
@@ -91,7 +91,8 @@ The same goes for a `subject-token` from a step output.
    fallback draft -06 section 7.1 allows: `checkIssuerMetadata`'s rules (`metadata.*`, `jwks.*`).
 2. **When it mints the ID-JAG,** your token endpoint's answer (draft -06 section 4.3.4): the rules below.
 3. **The ID-JAG:** `checkIdJag`'s rules, from its structure and header to its signature (with your published keys)
-   and every claim (`jwt.*`, `header.*`, `signature`, `claim.*`, `receiver.parse`).
+   and every claim (`jwt.*`, `header.*`, `signature`, `claim.*`, `receiver.parse`). A header or claims nested more
+   than 32 levels deep fail `jwt.structure` (RFC 7519 section 7.2) and aren't checked further.
 
 **What stops the step,** by `fail-on`:
 
@@ -134,8 +135,8 @@ The rules this Action adds, for the steps only it does:
 ## What it sends, and what it shows
 
 - **Requests:** only to your issuer's two metadata locations, its `jwks_uri` and, when minting, its token endpoint.
-  Each is https only, follows no redirects, reads at most 256 KiB and gives up after 10 seconds
-  (`src/http.ts`). Nothing is sent anywhere else, and there is no telemetry.
+  Each is https only, follows no redirects, reads at most 256 KiB, refuses JSON nested more than 32 levels deep and
+  gives up after 10 seconds (`src/http.ts`). Nothing is sent anywhere else, and there is no telemetry.
 - **Secrets:** the Action masks `id-jag`, `idp-client-secret`, `subject-token` and a minted ID-JAG before it prints
   anything. The runner prints the step's inputs before the Action starts, though, so pass them from secrets or mask
   them in the step that produces them (see [Use it](#use-it)).
@@ -161,4 +162,4 @@ packages bundled into it.
 
 ## License
 
-MIT
+MIT © Mark McIntosh
