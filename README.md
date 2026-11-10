@@ -152,10 +152,6 @@ and the outputs.
 
 ## Contributing
 
-Commits, pull requests and their descriptions credit people only: no AI co-authors, no "generated with" lines, no
-commits made by AI accounts. A check (`.github/workflows/commit-text.yml`) enforces it on every pull request and on
-`main`; to catch it before you commit, run `git config core.hooksPath .githooks` once in your clone.
-
 To work on it: `npm ci`, then `npm run typecheck`, `npm test` and `npm run build`. The runner runs `dist/index.js`,
 so commit it with the source; CI fails when it doesn't match. `dist/licenses.txt` carries the licences of the
 packages bundled into it.
