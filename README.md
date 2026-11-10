@@ -160,6 +160,15 @@ To work on it: `npm ci`, then `npm run typecheck`, `npm test` and `npm run build
 so commit it with the source; CI fails when it doesn't match. `dist/licenses.txt` carries the licences of the
 packages bundled into it.
 
+## Related
+
+- [better-auth-id-jag](https://github.com/mmcintosh/better-auth-id-jag): where this Action's rules come from. A pair
+  of Better Auth plugins: an ID-JAG issuer for your IdP, and a receiver for your MCP server or other app.
+- [Test your IdP](https://idjag-tester.infowall.net): the public tester, which also redeems your ID-JAG at a real
+  receiver.
+
+If id-jag-check is useful to you, a ⭐ on [GitHub](https://github.com/mmcintosh/id-jag-check) helps others find it.
+
 ## License
 
 MIT © Mark McIntosh
