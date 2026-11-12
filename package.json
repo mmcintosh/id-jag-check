@@ -1,6 +1,6 @@
 {
   "name": "id-jag-check",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "A GitHub Action that checks the ID-JAGs your IdP issues, rule by rule.",
   "license": "MIT",
