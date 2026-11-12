@@ -11,6 +11,9 @@ The rules are [better-auth-id-jag](https://www.npmjs.com/package/better-auth-id-
 the public tester at https://idjag-tester.infowall.net reports. Each comes with its level (the draft's MUST, SHOULD,
 RECOMMENDED or OPTIONAL, or POLICY for that receiver's own choice) and its source, a section of the draft or an RFC.
 
+As of 2026-11-12, listed on oauth.net's [Cross-App Access page](https://oauth.net/cross-app-access/) under Test
+Tools, next to the public tester; better-auth-id-jag is under SDKs and Libraries.
+
 ## Use it
 
 Let the Action ask your IdP for an ID-JAG, with the token exchange of draft -06 section 4.3, here for a test user
