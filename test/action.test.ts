@@ -249,8 +249,8 @@ describe("minting the ID-JAG (draft -06 section 4.3)", () => {
     });
     // RFC 6749 section 2.3.1: each half form-urlencoded before base64 (a space is "+", ":" is "%3A").
     expect((call?.init?.headers as Record<string, string>).authorization).toBe(`Basic ${btoa("ci+client:s3cret%3A%2B%2F%3D")}`);
-    // Each rule this Action adds, with its level.
-    const levels = { "exchange.response": "MUST", "exchange.issued_token_type": "MUST", "exchange.token_type": "MUST", "exchange.content_type": "MUST", "exchange.cache_control": "MUST", "exchange.expires_in": "RECOMMENDED", "exchange.refresh_token": "SHOULD", "exchange.access_token": "MUST", "exchange.scope": "MUST" }; // "read" of "read write": scope is REQUIRED
+    // Each of checkExchange's rules, with its level.
+    const levels = { "exchange.status": "MUST", "exchange.issued_token_type": "MUST", "exchange.token_type": "MUST", "exchange.access_token": "MUST", "exchange.scope": "MUST", "exchange.expires_in": "RECOMMENDED", "exchange.refresh_token": "SHOULD", "exchange.no_store": "MUST", "exchange.resource_echo": "MUST" };
     for (const [id, level] of Object.entries(levels)) expect(r.log.some((l) => l.startsWith(`pass ${id} (${level},`))).toBe(true);
   });
 
@@ -286,17 +286,18 @@ describe("minting the ID-JAG (draft -06 section 4.3)", () => {
     const idp = await fakeIdp();
     tokenRoute(idp, (token) => new Response(JSON.stringify({ issued_token_type: "urn:ietf:params:oauth:token-type:id-jag", access_token: token, token_type: "N_A", expires_in: 300, scope: "read write" }), { status: 200, headers: { "content-type": "text/plain", "cache-control": "no-store" } }));
     const r = await runAction({ ...BASE, ...MINT }, idp);
-    // The ID-JAG grants "read" of "read write": scope is then REQUIRED, and "read write" is wrong, a failed MUST.
-    expect(ids(r.outputs.failed as string)).toEqual(["exchange.content_type", "exchange.scope"]);
+    // The ID-JAG grants "read" of "read write": the answer's scope must then say so, and "read write" is wrong.
+    expect(ids(r.outputs.failed as string)).toEqual(["exchange.status", "exchange.scope"]);
+    expect(r.log.find((l) => l.includes("exchange.status"))).toContain("must be application/json");
     expect(r.log.some((l) => l.startsWith("FAIL exchange.scope (MUST,"))).toBe(true);
   });
 
-  it("a returned scope is OPTIONAL when the ID-JAG grants exactly what was asked for", async () => {
+  it("a returned scope passes when it is the ID-JAG's, and the ID-JAG grants exactly what was asked for", async () => {
     const idp = await fakeIdp();
     tokenRoute(idp, (token) => json({ issued_token_type: "urn:ietf:params:oauth:token-type:id-jag", access_token: token, token_type: "N_A", expires_in: 300, scope: "read" }, { "cache-control": "no-store" }));
     const r = await runAction({ ...BASE, ...MINT, scopes: "read" }, idp);
     expect(r.code).toBe(0);
-    expect(r.log.some((l) => l.startsWith("pass exchange.scope (OPTIONAL,"))).toBe(true);
+    expect(r.log.some((l) => l.startsWith("pass exchange.scope (MUST,"))).toBe(true);
   });
 
   it("the token endpoint comes from the metadata unless token-endpoint is given", async () => {
@@ -320,7 +321,7 @@ describe("minting the ID-JAG (draft -06 section 4.3)", () => {
     const idp = await fakeIdp();
     tokenRoute(idp, (token) => json({ issued_token_type: "urn:ietf:params:oauth:token-type:jwt", access_token: token, token_type: "Bearer", refresh_token: "r" }));
     const r = await runAction({ ...BASE, ...MINT }, idp);
-    expect(ids(r.outputs.failed as string)).toEqual(["exchange.issued_token_type", "exchange.token_type", "exchange.cache_control", "exchange.scope"]);
+    expect(ids(r.outputs.failed as string)).toEqual(["exchange.issued_token_type", "exchange.token_type", "exchange.scope", "exchange.no_store"]);
     expect(r.log.some((l) => l.startsWith("warn exchange.refresh_token"))).toBe(true);
     expect(r.log.some((l) => l.startsWith("warn exchange.expires_in"))).toBe(true);
   });
@@ -339,8 +340,48 @@ describe("minting the ID-JAG (draft -06 section 4.3)", () => {
     idp.routes.set(`${ISSUER}/token`, () => new Response(JSON.stringify({ error: "invalid_grant", error_description: "user who@example.org is not assigned" }), { status: 400 }));
     const r = await runAction({ ...BASE, ...MINT }, idp);
     expect(r.code).toBe(1);
-    expect(r.log.find((l) => l.includes("exchange.response"))).toContain('HTTP 400 with error "invalid_grant"');
+    expect(r.log.find((l) => l.includes("exchange.status"))).toContain('HTTP 400 with error "invalid_grant"');
     expect([...r.log, r.summary, ...Object.values(r.outputs)].join("\n")).not.toMatch(/who@example\.org|error_description/);
+  });
+
+  it("a refusal sent with HTTP 200 is still a refusal, and shows the error code only", async () => {
+    const idp = await fakeIdp();
+    idp.routes.set(`${ISSUER}/token`, () => json({ error: "access_denied", error_description: "user who@example.org is not assigned" }));
+    const r = await runAction({ ...BASE, ...MINT }, idp);
+    expect(r.code).toBe(1);
+    expect(ids(r.outputs.failed as string)).toEqual(["exchange.status"]);
+    expect(r.log.find((l) => l.includes("exchange.status"))).toContain('error "access_denied", but with HTTP 200');
+    expect([...r.log, r.summary, ...Object.values(r.outputs)].join("\n")).not.toMatch(/who@example\.org|error_description/);
+  });
+
+  it("a token endpoint that redirects fails exchange.status, with the rest of the report", async () => {
+    const idp = await fakeIdp();
+    idp.routes.set(`${ISSUER}/token`, () => new Response(null, { status: 302, headers: { location: "https://elsewhere.example.net/token" } }));
+    const r = await runAction({ ...BASE, ...MINT }, idp);
+    expect(ids(r.outputs.failed as string)).toEqual(["exchange.status"]);
+    expect(r.log.find((l) => l.includes("exchange.status"))).toContain("a redirect, which this Action doesn't follow");
+    expect(r.summary).toContain("metadata.issuer");
+  });
+
+  it("each resource in the ID-JAG must be the one the client sent, exactly as sent", async () => {
+    const idp = await fakeIdp();
+    idp.routes.set(`${ISSUER}/token`, async () => good(await idp.sign({ resource: `${RESOURCE}/` })));
+    const r = await runAction({ ...BASE, ...MINT }, idp);
+    expect(ids(r.outputs.failed as string)).toContain("exchange.resource_echo");
+    expect(r.log.some((l) => l.startsWith("FAIL exchange.resource_echo (MUST,"))).toBe(true);
+  });
+
+  it("expires_in: a lifetime other than the ID-JAG's is a warning; one that isn't a whole number fails", async () => {
+    const idp = await fakeIdp();
+    const answer = (expires_in: unknown) => async () => json({ issued_token_type: "urn:ietf:params:oauth:token-type:id-jag", access_token: await idp.sign(), token_type: "N_A", expires_in, scope: "read" }, { "cache-control": "no-store" });
+    idp.routes.set(`${ISSUER}/token`, answer(3600));
+    const other = await runAction({ ...BASE, ...MINT }, idp);
+    expect(other.code).toBe(0);
+    expect(other.log.find((l) => l.startsWith("warn exchange.expires_in (RECOMMENDED,"))).toContain("the ID-JAG's lifetime (exp - iat) is 300 s");
+    idp.routes.set(`${ISSUER}/token`, answer("300"));
+    const malformed = await runAction({ ...BASE, ...MINT }, idp);
+    expect(ids(malformed.outputs.failed as string)).toEqual(["exchange.expires_in"]);
+    expect(malformed.log.some((l) => l.startsWith("FAIL exchange.expires_in (MUST,"))).toBe(true);
   });
 
   it("the secrets and the minted ID-JAG are masked, and none of them is printed", async () => {

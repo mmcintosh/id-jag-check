@@ -6,10 +6,11 @@ ID-JAGs are what Cross App Access and MCP's enterprise-managed authorization run
 change that breaks one of the draft's MUSTs fails the build (with `fail-on: policy`, so does one that
 better-auth-id-jag's receiver would refuse), with every rule's result in the job summary.
 
-The rules are [better-auth-id-jag](https://www.npmjs.com/package/better-auth-id-jag)'s `checkIssuerMetadata` and
-`checkIdJag` ([source](https://github.com/mmcintosh/better-auth-id-jag/blob/main/src/core/check.ts)), the same ones
-the public tester at https://idjag-tester.infowall.net reports. Each comes with its level (the draft's MUST, SHOULD,
-RECOMMENDED or OPTIONAL, or POLICY for that receiver's own choice) and its source, a section of the draft or an RFC.
+The rules are [better-auth-id-jag](https://www.npmjs.com/package/better-auth-id-jag)'s `checkIssuerMetadata`,
+`checkExchange` and `checkIdJag` ([source](https://github.com/mmcintosh/better-auth-id-jag/blob/main/src/core/check.ts)),
+the same ones the public tester at https://idjag-tester.infowall.net reports. Each comes with its level (the draft's
+MUST, SHOULD, RECOMMENDED or OPTIONAL, or POLICY for that receiver's own choice) and its source, a section of the
+draft or an RFC.
 
 As of 2026-11-12, listed on oauth.net's [Cross-App Access page](https://oauth.net/cross-app-access/) under Test
 Tools, next to the public tester; better-auth-id-jag is under SDKs and Libraries.
@@ -92,7 +93,12 @@ The same goes for a `subject-token` from a step output.
 
 1. **Your metadata and keys,** found from `issuer` at RFC 8414's location, or OpenID Connect Discovery's as the
    fallback draft -06 section 7.1 allows: `checkIssuerMetadata`'s rules (`metadata.*`, `jwks.*`).
-2. **When it mints the ID-JAG,** your token endpoint's answer (draft -06 section 4.3.4): the rules below.
+2. **When it mints the ID-JAG,** your token endpoint's answer (draft -06 section 4.3.4): `checkExchange`'s rules
+   (`exchange.*`): the status and `Content-Type`, `issued_token_type`, `token_type`, `access_token`, `scope`,
+   `expires_in`, `refresh_token`, `Cache-Control: no-store`, and each resource in the ID-JAG exactly as the Action
+   sent it. The public tester's guide lists each with its level and source
+   ([docs/test-your-idp.md](https://github.com/mmcintosh/better-auth-id-jag/blob/v0.8.0/docs/test-your-idp.md#the-rules),
+   better-auth-id-jag 0.8.0).
 3. **The ID-JAG:** `checkIdJag`'s rules, from its structure and header to its signature (with your published keys)
    and every claim (`jwt.*`, `header.*`, `signature`, `claim.*`, `receiver.parse`). A header or claims nested more
    than 32 levels deep fail `jwt.structure` (RFC 7519 section 7.2) and aren't checked further.
@@ -114,17 +120,9 @@ The rules this Action adds, for the steps only it does:
 |---|---|---|---|
 | `metadata.fetch` | SHOULD | draft -06 section 7.1; RFC 8414 section 3 | Metadata is found at one of the two locations. |
 | `jwks.fetch` | MUST | draft -06 section 4.4.1; RFC 7521 section 5.2 | The metadata's `jwks_uri` answers with JSON: a receiver verifies the signature with these keys. Not fetched when the metadata's `issuer` isn't yours (RFC 8414 section 3.3). |
-| `metadata.check`, `jwt.check` | MUST | RFC 8414 section 3.2; draft -06 section 4.4.1 | The checks could read every value they needed. They aren't known to stop on any input; if one ever does, its rule fails and the rest of the report is kept. |
-| `exchange.response` | MUST | draft -06 section 4.3.4; RFC 8693 section 2.2 | The exchange answers HTTP 200 with a JSON object. |
-| `exchange.issued_token_type` | MUST | draft -06 section 4.3.4 | `urn:ietf:params:oauth:token-type:id-jag`. |
-| `exchange.token_type` | MUST | draft -06 section 4.3.4; RFC 6749 section 5.1 | `N_A`. |
+| `metadata.check`, `exchange.check`, `jwt.check` | MUST | RFC 8414 section 3.2; draft -06 sections 4.3.4, 4.4.1 | The checks could read every value they needed. They aren't known to stop on any input; if one ever does, its rule fails and the rest of the report is kept. |
 | `exchange.token_endpoint` | MUST | RFC 8414 sections 2, 3.3 | There is a token endpoint to mint with: `token-endpoint`, or `token_endpoint` from metadata whose `issuer` is yours. |
-| `exchange.content_type` | MUST | RFC 6749 section 5.1; RFC 8693 section 2.2.1 | `Content-Type: application/json`. |
-| `exchange.cache_control` | MUST | RFC 6749 section 5.1; RFC 8693 section 2.2 | `Cache-Control: no-store`. |
-| `exchange.access_token` | MUST | draft -06 section 4.3.4 | Present: it carries the ID-JAG. |
-| `exchange.expires_in` | RECOMMENDED | draft -06 section 4.3.4 | A positive whole number of seconds. |
-| `exchange.refresh_token` | SHOULD | draft -06 section 4.3.4 | Absent ("SHOULD NOT be used"). |
-| `exchange.scope` | MUST, or OPTIONAL | draft -06 section 4.3.4 | Present, and the same as the ID-JAG's scope, whenever that differs from the scopes asked for (MUST); otherwise OPTIONAL, and the same when present. |
+| `exchange.status` | MUST | draft -06 section 4.3.4; RFC 8693 section 2.2.1 | The token endpoint answers at all: within the limits below, and without a redirect. Its answer is then `checkExchange`'s, under the same rule id. |
 
 ## What it doesn't check
 
@@ -147,7 +145,8 @@ The rules this Action adds, for the steps only it does:
   setup (`iss`, `aud`, `client_id`, `resource`, `scope`, `jti`, `iat`, `exp`, `nbf`, `tenant`), never `sub`, `email`,
   an actor's `act.sub` or other values about the user, and takes them out of the rules' messages too (`src/run.ts`).
   Values from your IdP are escaped, so they can't become links, images or HTML in the summary (`src/report.ts`). From
-  a refused exchange it shows the `error` code, not the `error_description`, which can name the user.
+  a refused exchange, also one refused with HTTP 200, it shows the `error` code, not the `error_description`, which
+  can name the user (`src/exchange.ts`).
 
 The tests (`test/action.test.ts`) hold each of these: a redirect not followed, the size cap and the timeout, metadata
 naming another issuer left unused, the masks, the escaping, and the user's values absent from the log, the summary

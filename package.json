@@ -15,7 +15,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "better-auth-id-jag": "^0.7.1"
+    "better-auth-id-jag": "^0.8.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

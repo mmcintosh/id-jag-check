@@ -1,6 +1,7 @@
 // One run: find your issuer's metadata and keys, check them, get the ID-JAG (passed in, or minted), and check it.
-// Every rule comes from better-auth-id-jag's checkIssuerMetadata and checkIdJag, so this Action and the public
-// tester hold an IdP to the same rules; the few rules here are about fetching and minting, which only the Action does.
+// Every rule comes from better-auth-id-jag's checkIssuerMetadata, checkExchange (the token endpoint's answer, when
+// minting) and checkIdJag, so this Action and the public tester hold an IdP to the same rules; the few rules here are
+// about fetching and minting, which only the Action does.
 import { checkIdJag, checkIssuerMetadata, type IdJagReport, type RuleResult } from "better-auth-id-jag";
 import { type MintInput, mint } from "./exchange.js";
 import { checkHttpsUrl, type FetchLike, getJson, oauthMetadataUrl, openIdConfigurationUrl } from "./http.js";
