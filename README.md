@@ -1,3 +1,5 @@
+<img src=".github/logo.svg" width="72" height="72" alt="Infowall logo">
+
 # id-jag-check
 
 A GitHub Action that checks the ID-JAGs (Identity Assertion JWT Authorization Grants) your IdP issues, rule by rule,
